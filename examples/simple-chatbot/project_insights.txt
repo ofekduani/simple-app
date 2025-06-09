@@ -1,0 +1,55 @@
+────────────────────────────────────────────
+Project Insights – Simple-Chatbot (Pipecat)
+────────────────────────────────────────────
+
+1. System Architecture & Flow
+─────────────────────────────
+• Android client connects to backend via /connect, joins a Daily.co room for real-time audio/video, and exchanges audio and transcript events.
+• Backend (FastAPI + Gemini) handles /connect, creates Daily room, spawns Gemini bot process (bot-gemini.py).
+• All conversation, function-calling, and language handling is routed through Gemini Multimodal Live.
+
+2. Gemini Multimodal Live Integration
+─────────────────────────────────────
+• Backend initializes GeminiMultimodalLiveLLMService with Hebrew voice and function/tool declarations.
+• Gemini can return a function_call object; backend parses, executes, and returns result to Gemini.
+• Audio and transcript events are streamed in real time between backend and client.
+
+3. Validation & Debugging
+─────────────────────────
+• Backend logs are detailed—useful for debugging connection, pipeline, and Gemini integration issues.
+• Look for log lines: 'Connecting to Gemini service', 'function_call', 'Bot started speaking', etc.
+• Validation scripts should check for log patterns, successful connections, and function call execution.
+
+4. AI Worker Guidance
+─────────────────────
+• Always check logs after each step (especially after backend or Gemini changes).
+• If a function call or transcript is missing, check both backend and Android client logs.
+• If unsure about Gemini API usage, refer to Gemini API docs and bot-gemini.py.
+
+5. Continuity Tips for Future Sessions
+──────────────────────────────────────
+• Update this file and the workplan after each major milestone.
+• Note any custom scripts, validation steps, troubleshooting tips, or 'ASK_SUPERVISOR' moments.
+• This file is your quick-start for new sessions or AI workers.
+
+6. Potential Issues & Troubleshooting
+─────────────────────────────────────
+• Daily.co room/token issues: If client can't join, check backend /connect and Daily API logs.
+• Gemini function-calling bugs: If a function isn't called or result isn't returned, check backend's function dispatch logic.
+• Hebrew TTS/ASR quality: If speech recognition or synthesis is poor, try different Gemini voices or tweak the prompt.
+• Transcript display: If transcripts don't show up on Android, check event/callback wiring in the client.
+
+7. Key Log Patterns (for validation scripts)
+────────────────────────────────────────────
+• 'Connecting to Gemini service'
+• 'function_call' (when Gemini triggers a tool)
+• 'Bot started speaking' / 'Bot stopped speaking'
+• 'Participant joined' / 'Participant left'
+• 'Canceling pipeline task' (may indicate error or disconnect)
+
+8. Where to Ask for Help
+────────────────────────
+• If validation fails or requirements are unclear, AI worker should pause and ASK_SUPERVISOR.
+• If Gemini API changes or new features are needed, consult supervisor or Gemini docs.
+
+(Keep this file up to date as the project evolves!) 

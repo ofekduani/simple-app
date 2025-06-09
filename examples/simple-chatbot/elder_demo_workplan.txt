@@ -1,0 +1,162 @@
+Simple-Chatbot (Pipecat) – Kaizen Work Plan
+────────────────────────────────────────────
+Gemini Bot Context & API Logic
+────────────────────────────────────────────
+• This project uses the **Gemini Multimodal Live** bot as the backend LLM.
+• All conversation, function-calling, and language handling is routed through Gemini.
+• The backend (bot-gemini.py) initializes GeminiMultimodalLiveLLMService with:
+    – Hebrew voice (e.g., "Lior")
+    – Function tool declarations (for profile, reminders, RAG)
+    – Streaming audio and transcript events
+• Function-calling is handled per the Gemini API: the model returns a function_call object, the backend executes the function, and the result is sent back as a new message.
+• The AI worker must:
+    – Understand the Gemini API flow (prompt → function_call → result → response)
+    – Ensure all function/tool logic is compatible with Gemini's function-calling schema
+    – Ensure all language and TTS/ASR settings are set for Hebrew
+    – Validate that the backend and client interact with Gemini as described
+
+Goal
+────
+Create a demo-ready voice assistant for Hebrew-speaking elderly users that runs on:
+• Existing Python FastAPI + Gemini-Live backend
+• Existing Android RTVI client
+
+Key MVP Features
+• Two hard-coded user profiles (name, age, city, hobbies, pill-time)
+• Hebrew conversation (ASR + TTS)
+• Gemini Function Calling with three tools:
+  – get_profile_field
+  – set_medicine_reminder
+  – lookup_doc (mini RAG)
+• Live Hebrew transcripts on the Android screen
+• Keep current robot avatar/audio; no ElevenLabs needed
+
+Kaizen Principles
+• Small, always-green commits
+• Every step has concrete visual/log validation
+• Roll back or fix before moving on
+• Use this file as tracker & checklist
+
+Legend
+Phase  = high-level milestone
+Step   = < 30 min atomic task you can see working
+Validation = CLI/log/UI check proving completion
+
+────────────────────────────────────────────
+Meta Phase – AI Harness & Validation
+────────────────────────────────────
+M0.1  Create scripts/validate_phase.sh dispatcher
+      Validation: bash scripts/validate_phase.sh 0 prints OK
+
+M0.2  For each phase, create scripts/validate_pX.sh
+      Validation: Each script runs, prints PASS/FAIL, and exits 0/1
+
+────────────────────────────────────────────
+Phase 0 – Baseline & Branch Setup 🌱
+────────────────────────────────────────────
+0.1 Create elder_demo_tracker.txt  ✅ *(auto)*
+    Validation: test -f elder_demo_tracker.txt
+
+0.2 Baseline run (English)
+    • Script: scripts/validate_p0_baseline.sh
+      – start server on port 7860
+      – curl /connect
+      – grep log for "Bot started speaking"
+    Validation: harness exits 0
+
+────────────────────────────────────────────
+Phase 1 – Profile Injection 👵🏻👴🏽
+────────────────────────────────────────────
+1.1  Add profiles.py in server folder
+     - Two dicts: A & B
+     - Validation: python -c "import profiles; print(profiles.PROFILES.keys())" | grep a && grep b
+
+1.2  Expose user_id in /connect
+     - Modify FastAPI handler
+     - Add unit test: tests/test_connect_userid.py
+     - Validation: pytest -q tests/test_connect_userid.py
+
+1.3  Inject profile into Gemini system prompt
+     - Update bot-gemini.py
+     - Log: "Loaded profile: Leah" or "Moshe"
+     - Validation: scripts/validate_p1.sh tails log for pattern
+
+ASK_SUPERVISOR: Please provide the Hebrew greeting text for each profile.
+
+────────────────────────────────────────────
+Phase 2 – Function Calling Skeleton 🛠
+────────────────────────────────────────────
+2.1  Define declarations (function_tools.py)
+     - Validation: python -m tests.test_function_tools
+
+2.2  Pass tools into GeminiMultimodalLiveLLMService
+     - Validation: server log shows call request
+
+2.3  Dispatcher executes Python coroutine & returns result
+     - Validation: "מתי אני לוקח תרופה?" triggers call & answer (log/response)
+
+ASK_SUPERVISOR: Confirm function names, descriptions, and Hebrew phrasing for each tool.
+
+────────────────────────────────────────────
+Phase 3 – Hebrew Audio 🎤🔊
+────────────────────────────────────────────
+3.1  Select Hebrew voice (e.g. "Lior")
+     - Validation: hear Hebrew TTS; log shows correct voice_id
+
+3.2  Tune VAD if needed
+     - Validation: no mid-sentence cut-offs in Hebrew test phrase
+
+────────────────────────────────────────────
+Phase 4 – On-Screen Transcripts 📝
+────────────────────────────────────────────
+4.1  Extend VoiceClientManager state lists
+     - Validation: logcat prints lines
+
+4.2  ChatTranscript composable in UI
+     - Validation: Hebrew text scrolls during chat
+
+────────────────────────────────────────────
+Phase 5 – Mini RAG 🔍
+────────────────────────────────────────────
+5.1  data/knowledge.json with Hebrew Q&A
+     - Validation: file exists, valid JSON
+5.2  lookup_doc(query) retrieval function
+     - Validation: question returns snippet & source (unit test)
+
+────────────────────────────────────────────
+Phase 6 – Medicine Reminder ✅
+────────────────────────────────────────────
+6.1  Add pill_taken_today flag to profile
+     - Validation: profile dict updates, test reflects change
+6.2  set_medicine_reminder function updates flag
+     - Validation: follow-up question reflects update (log/response)
+
+────────────────────────────────────────────
+Phase 7 – UX Polish & Demo Script 🎬
+────────────────────────────────────────────
+7.1  User picker screen (Leah/Moshe)
+     - Validation: UI shows both users, selection reflected in answers
+7.2  Banner/Toast for latest function result
+     - Validation: after tool call, banner shows summary
+7.3  run_demo.sh automates server + emulator
+     - Validation: script runs, demo completes without crash
+
+────────────────────────────────────────────
+Possible Issues & Troubleshooting
+────────────────────────────────────────────
+• Daily API or token errors: check .env and network connectivity
+• Gemini API quota or Hebrew voice not available: check API key, try fallback voice
+• Android app not connecting: check backend URL, logs, and network
+• Function call not triggered: check tool declaration, logs, and Gemini model support
+• RAG/knowledge base not returning: check JSON validity, retrieval logic
+• TTS/ASR not in Hebrew: check voice_id, language settings, and logs
+• If any validation fails or requirements are unclear, the AI must PAUSE and ASK_SUPERVISOR for help before proceeding.
+
+────────────────────────────────────────────
+End-State ✅
+───────────
+• Hebrew personalised conversation with transcripts
+• Function calls hit Python handlers
+• Knowledge lookup works; medicine reminder stateful
+• Switch between User A & B proves personalisation
+• Tracker empty, logs green 
