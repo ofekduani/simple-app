@@ -52,4 +52,34 @@ Project Insights – Simple-Chatbot (Pipecat)
 • If validation fails or requirements are unclear, AI worker should pause and ASK_SUPERVISOR.
 • If Gemini API changes or new features are needed, consult supervisor or Gemini docs.
 
+9. Helpful Code References from Other Examples
+────────────────────────────────────────────
+• Function Calling:
+  – Reference: `examples/word-wrangler-gemini-live`
+  – Why it's helpful: It provides a complete template for Gemini Live function calling. We can copy its pattern for defining tools, handling `function_call` responses, and managing state.
+
+• User Profiles & Structured Conversations:
+  – Reference: `examples/patient-intake`
+  – Why it's helpful: It shows how to guide a conversation to collect specific information (like filling a form). We'll use this to build our user profile system.
+
+• RAG / Information Lookup:
+  – Reference: `examples/news-chatbot`
+  – Why it's helpful: It demonstrates how to make the bot fetch external information (news) to answer a question. This is the model for our `lookup_doc` RAG function.
+
+• Hebrew Language Configuration:
+  – Reference: `examples/translation-chatbot`
+  - Why it's helpful: It shows the correct `language="he-IL"` settings for both Speech-to-Text and Text-to-Speech services.
+
+────────────────────────────────────────────
+New Technical & Process Insights (2025-06-09)
+────────────────────────────────────────────
+• Every /connect request creates a new Daily room and token, ensuring each user session is isolated and reducing the risk of connection conflicts.
+• The user_id parameter is strictly validated; only 'a' or 'b' are accepted. This ensures the correct user profile is loaded and prevents misconfiguration.
+• If an invalid user_id is provided, the server returns a 400 error with a clear message.
+• For local development, you can use DAILY_SAMPLE_ROOM_URL to reuse a room, but this is not recommended for production or demos.
+• If you encounter 'address already in use' errors, check for lingering server processes or port conflicts.
+• If you see 'Client already in a call' errors, it means the Daily room is already occupied; always use a fresh room for each session.
+• Always check logs for 'Room URL:' and 'Loaded profile:' to confirm correct operation.
+• The system now robustly injects the selected profile into the Gemini system prompt, enabling personalized conversations.
+
 (Keep this file up to date as the project evolves!) 

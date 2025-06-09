@@ -28,11 +28,12 @@ from typing import Any, Dict
 
 import aiohttp
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from pipecat.transports.services.helpers.daily_rest import DailyRESTHelper, DailyRoomParams
+from profiles import PROFILES
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -111,17 +112,15 @@ async def create_room_and_token() -> tuple[str, str]:
     Raises:
         HTTPException: If room creation or token generation fails
     """
-    room_url = os.getenv("DAILY_SAMPLE_ROOM_URL", None)
-    token = os.getenv("DAILY_SAMPLE_ROOM_TOKEN", None)
-    if not room_url:
-        room = await daily_helpers["rest"].create_room(DailyRoomParams())
-        if not room.url:
-            raise HTTPException(status_code=500, detail="Failed to create room")
-        room_url = room.url
+    # Always create a new room and token for every call
+    room = await daily_helpers["rest"].create_room(DailyRoomParams())
+    if not room.url:
+        raise HTTPException(status_code=500, detail="Failed to create room")
+    room_url = room.url
 
-        token = await daily_helpers["rest"].get_token(room_url)
-        if not token:
-            raise HTTPException(status_code=500, detail=f"Failed to get token for room: {room_url}")
+    token = await daily_helpers["rest"].get_token(room_url)
+    if not token:
+        raise HTTPException(status_code=500, detail=f"Failed to get token for room: {room_url}")
 
     return room_url, token
 
@@ -166,18 +165,20 @@ async def start_agent(request: Request):
 
 
 @app.post("/connect")
-async def rtvi_connect(request: Request) -> Dict[Any, Any]:
+async def rtvi_connect(request: Request, user_id: str = Query("a", description="User ID (a or b)")) -> Dict[Any, Any]:
     """RTVI connect endpoint that creates a room and returns connection credentials.
 
     This endpoint is called by RTVI clients to establish a connection.
 
     Returns:
-        Dict[Any, Any]: Authentication bundle containing room_url and token
+        Dict[Any, Any]: Authentication bundle containing room_url, token, user_id, and profile
 
     Raises:
         HTTPException: If room creation, token generation, or bot startup fails
     """
-    print("Creating room for RTVI connection")
+    print(f"Creating room for RTVI connection (user_id={user_id})")
+    if user_id not in PROFILES:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
     room_url, token = await create_room_and_token()
     print(f"Room URL: {room_url}")
 
@@ -185,7 +186,7 @@ async def rtvi_connect(request: Request) -> Dict[Any, Any]:
     try:
         bot_file = get_bot_file()
         proc = subprocess.Popen(
-            [f"python3 -m {bot_file} -u {room_url} -t {token}"],
+            [f"python3 -m {bot_file} -u {room_url} -t {token} -p {user_id}"],
             shell=True,
             bufsize=1,
             cwd=os.path.dirname(os.path.abspath(__file__)),
@@ -195,7 +196,7 @@ async def rtvi_connect(request: Request) -> Dict[Any, Any]:
         raise HTTPException(status_code=500, detail=f"Failed to start subprocess: {e}")
 
     # Return the authentication bundle in format expected by DailyTransport
-    return {"room_url": room_url, "token": token}
+    return {"room_url": room_url, "token": token, "user_id": user_id, "profile": PROFILES[user_id]}
 
 
 @app.get("/status/{pid}")

@@ -19,6 +19,7 @@ the conversation flow using Gemini's streaming capabilities.
 import asyncio
 import os
 import sys
+import argparse
 
 import aiohttp
 from dotenv import load_dotenv
@@ -41,8 +42,12 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIObserver, RTVIProcessor
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.services.gemini_multimodal_live.gemini import GeminiMultimodalLiveLLMService
+from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transports.services.daily import DailyParams, DailyTransport
+from profiles import PROFILES
+from function_tools import medicine_reminder_function
 
 load_dotenv(override=True)
 
@@ -102,6 +107,22 @@ class TalkingAnimation(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
+def build_system_prompt(profile):
+    return f"""
+    You are a helpful assistant for {profile.get('name', 'the user')}.
+    They are {profile.get('age')} years old, live in {profile.get('city')}, and enjoy {', '.join(profile.get('hobbies', []))}.
+    Their pill time is {profile.get('pill_time')}.
+
+    You have access to a tool called `set_medicine_reminder`. Use this tool when the user asks you to set a medicine reminder.
+    When the user asks to set a reminder, you need to identify the medicine name and the time for the reminder.
+    If the user's request is missing either the medicine name or the time, you MUST ask the user for the missing information before calling the tool.
+    Ask for the missing information in Hebrew.
+    For example, if the medicine name is missing, ask: #[Hebrew: "What is the name of the medicine?"]#
+    If the time is missing, ask: #[Hebrew: "At what time should I set the reminder?"]#
+    Only call the `set_medicine_reminder` function AFTER you have successfully gathered both the medicine name and the time from the user.
+    """
+
+
 async def main():
     """Main bot execution function.
 
@@ -112,6 +133,13 @@ async def main():
     - Animation processing
     - RTVI event handling
     """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--profile", dest="user_id", type=str, required=False, help="User profile ID (a or b)")
+    args, unknown = parser.parse_known_args()
+    user_id = args.user_id or os.getenv("USER_ID", "a")
+    profile = PROFILES.get(user_id, PROFILES["a"])
+    print(f"Loaded profile: {profile.get('name')}")
+
     async with aiohttp.ClientSession() as session:
         (room_url, token) = await configure(session)
 
@@ -135,12 +163,15 @@ async def main():
             api_key=os.getenv("GEMINI_API_KEY"),
             voice_id="Puck",  # Aoede, Charon, Fenrir, Kore, Puck
             transcribe_user_audio=True,
+            tools=ToolsSchema(standard_tools=[medicine_reminder_function]),
         )
+
+        llm.register_function("set_medicine_reminder", set_medicine_reminder)
 
         messages = [
             {
                 "role": "user",
-                "content": "You are Chatbot, a friendly, helpful robot. Your goal is to demonstrate your capabilities in a succinct way. Your output will be converted to audio so don't include special characters in your answers. Respond to what the user said in a creative and helpful way, but keep your responses brief. Start by introducing yourself.",
+                "content": build_system_prompt(profile),
             },
         ]
 
@@ -198,6 +229,10 @@ async def main():
 
         await runner.run(task)
 
+
+async def set_medicine_reminder(params: FunctionCallParams):
+    logger.info(f"Function call received: set_medicine_reminder with params: {params.arguments}")
+    await params.result_callback({"status": "received", "params": params.arguments})
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,3 +1,8 @@
+read the work plan and the previous chat and the project insights 
+i want to know what step in the wokplan are we ? 
+and what have we done sofar 
+
+
 Simple-Chatbot (Pipecat) – Kaizen Work Plan
 ────────────────────────────────────────────
 Gemini Bot Context & API Logic
@@ -83,6 +88,16 @@ Reference: See `project_insights.txt` (patient-intake example)
      - Log: "Loaded profile: Leah" or "Moshe"
      - Validation: scripts/validate_p1.sh tails log for pattern
 
+1.4  Implement Android profile selection UI
+     - Add a profile picker screen in the Android app (Ron/Noam)
+     - When user selects a profile, send /connect with user_id ('a' or 'b')
+     - Update connection logic to append ?user_id=a or ?user_id=b to backend URL
+     - Validation:
+         • UI displays both profiles for selection
+         • Selecting a profile and connecting loads the correct profile (check backend logs for "Loaded profile: Ron" or "Loaded profile: Noam")
+         • Bot responses are personalized to the selected user
+         • Switching profiles and reconnecting changes the bot's behavior accordingly
+
 ASK_SUPERVISOR: Please provide the Hebrew greeting text for each profile.
 
 ────────────────────────────────────────────
@@ -90,16 +105,28 @@ Phase 2 – Function Calling Skeleton 🛠
 ────────────────────────────────────────────
 Reference: See `project_insights.txt` (word-wrangler-gemini-live example)
 ────────────────────────────────────────────
-2.1  Define declarations (function_tools.py)
-     - Validation: python -m tests.test_function_tools
+2.1  Create function_tools.py with medicine reminder schema only
+     - Validation: python -c "import function_tools; print(function_tools.medicine_reminder_function)" prints schema
 
-2.2  Pass tools into GeminiMultimodalLiveLLMService
-     - Validation: server log shows call request
+2.2  Implement set_medicine_reminder handler in bot-gemini.py (log params only)
+     - Validation: server log shows medicine name and time when function is called
 
-2.3  Dispatcher executes Python coroutine & returns result
-     - Validation: "מתי אני לוקח תרופה?" triggers call & answer (log/response)
+2.3  Add Hebrew system instructions for function calling
+     - Validation: LLM asks for missing parameters in Hebrew
 
-ASK_SUPERVISOR: Confirm function names, descriptions, and Hebrew phrasing for each tool.
+2.4  Register function and tools with GeminiMultimodalLiveLLMService
+     - Validation: server log shows function call requests
+
+2.5  Test server with sample queries (full, missing name, missing time)
+     - Validation: logs show correct function call and parameter prompts
+
+2.6  Show a temporary message (toast/banner) on Android when function call is received
+     - Validation: UI briefly displays medicine name and time when function is called
+
+2.7  Test end-to-end: user asks for reminder, bot collects params, logs and UI update
+     - Validation: Both server and mobile show correct info
+
+ASK_SUPERVISOR: Confirm Hebrew phrasing for missing parameter prompts and UI display format.
 
 ────────────────────────────────────────────
 Phase 3 – Hebrew Audio 🎤🔊
@@ -193,3 +220,49 @@ End-State ✅
 • Knowledge lookup works; medicine reminder stateful
 • Switch between User A & B proves personalisation
 • Tracker empty, logs green 
+
+─────────────────────────────────────────────
+New Insights & Lessons Learned (2025-06-09)
+─────────────────────────────────────────────
+• Each /connect call creates a new Daily room and token, ensuring session isolation and preventing cross-talk between users.
+• The server enforces a maximum of one bot per room and cleans up bot processes on shutdown.
+• For local development, you can set DAILY_SAMPLE_ROOM_URL to reuse a room, but for production/demo, always create a new room per session.
+• If you see 'address already in use' errors, check for existing server processes on the same port.
+• If room creation fails, verify your DAILY_API_KEY and network connectivity.
+• The user_id parameter in /connect is critical: it must be 'a' or 'b'. If an invalid user_id is provided, the server returns a clear error. This prevents accidental misconfiguration and ensures the correct profile is loaded.
+• Always check logs for 'Room URL:' and 'Loaded profile:' to verify correct setup.
+• If you see errors about 'Client already in a call', ensure the Daily room is not being reused by multiple clients simultaneously.
+• The profile system is now robust: the selected profile is injected into the Gemini system prompt, and the bot personalizes its responses accordingly. 
+
+─────────────────────────────────────────────
+Profile Parameter Issue: Lessons & Insights (2025-06-10)
+─────────────────────────────────────────────
+Problem
+───────
+When the /connect endpoint was updated to require a user_id parameter (to select a user profile), the Android client did not send this parameter. This caused a 422 Unprocessable Entity error, breaking the connection flow.
+
+What We Learned
+───────────────
+• API Contract Changes: Any change to required API parameters must be reflected in all clients, or the backend must provide a default for backward compatibility.
+• FastAPI Validation: FastAPI enforces required parameters strictly. Missing required parameters result in a 422 error.
+• Backward Compatibility: Making new parameters optional (with a sensible default) prevents breaking existing clients.
+• Clear Error Messages: The backend should return clear, actionable error messages for invalid or missing parameters.
+
+Insights for Future Problem-Solving
+───────────────────────────────────
+• Document all API changes and communicate them to client developers.
+• Add strict validation and clear error handling for all user-facing parameters.
+• When introducing new parameters, consider the impact on all clients and provide defaults if possible.
+• Always test the full client-server flow after backend changes, not just the backend in isolation.
+• Update documentation and work plans immediately after resolving such issues, so future developers avoid similar pitfalls. 
+
+─────────────────────────────────────────────
+Insights & Lessons Learned (2025-07-10)
+─────────────────────────────────────────────
+• Breaking down function calling into atomic steps (schema, handler, registration, UI) makes debugging and validation easier.
+• Always validate function schemas in isolation before integrating with LLM service.
+• Use clear, language-specific system instructions to guide the LLM on when and how to use function tools.
+• Log all function call parameters for easy debugging and validation.
+• Android client must display function call stubs for user feedback, not just rely on server logs.
+• Test with both complete and incomplete user queries to ensure the bot collects all required parameters interactively.
+• Confirm all Hebrew prompts and UI text with supervisor for best user experience. 
