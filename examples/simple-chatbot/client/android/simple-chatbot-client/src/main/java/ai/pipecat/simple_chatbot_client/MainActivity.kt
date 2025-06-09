@@ -38,6 +38,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +65,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             RTVIClientTheme {
+                var selectedProfile by remember { mutableStateOf<String?>(null) }
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Box(
                         Modifier
@@ -71,11 +76,14 @@ class MainActivity : ComponentActivity() {
 
                         val vcState = voiceClientManager.state.value
 
-                        if (vcState != null) {
+                        if (selectedProfile == null) {
+                            ProfileSelectionScreen { profileId ->
+                                selectedProfile = profileId
+                            }
+                        } else if (vcState != null) {
                             InCallLayout(voiceClientManager)
-
                         } else {
-                            ConnectSettings(voiceClientManager)
+                            ConnectSettings(voiceClientManager, selectedProfile!!)
                         }
 
                         voiceClientManager.errors.firstOrNull()?.let { errorText ->
@@ -123,17 +131,54 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable
+fun ProfileSelectionScreen(onProfileSelected: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Select Profile", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = { onProfileSelected("a") },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        ) {
+            Text("Ron")
+        }
+        Button(
+            onClick = { onProfileSelected("b") },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        ) {
+            Text("Noam")
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectSettings(
     voiceClientManager: VoiceClientManager,
+    selectedProfile: String
 ) {
     val scrollState = rememberScrollState()
 
     val start = {
-        val backendUrl = Preferences.backendUrl.value
+        val backendUrlRaw = Preferences.backendUrl.value?.trimEnd('/') ?: ""
+        android.util.Log.i("ConnectSettings", "Raw backend URL entered: $backendUrlRaw")
+        android.util.Log.i("ConnectSettings", "Selected profile before processing: $selectedProfile")
 
-        voiceClientManager.start(baseUrl = backendUrl!!)
+        val backendUrl = backendUrlRaw
+            .substringBefore("/connect")
+            .substringBefore("?")
+            .trimEnd('/')
+
+        android.util.Log.i("ConnectSettings", "Clean backend URL: $backendUrl")
+
+        android.util.Log.i("ConnectSettings", "Connecting: base=$backendUrl, user=$selectedProfile")
+        voiceClientManager.start(baseUrl = backendUrl, userId = selectedProfile)
     }
 
     Box(

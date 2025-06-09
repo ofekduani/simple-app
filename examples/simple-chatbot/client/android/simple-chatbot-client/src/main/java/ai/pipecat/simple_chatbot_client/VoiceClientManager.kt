@@ -61,7 +61,7 @@ class VoiceClientManager(private val context: Context) {
         errors.add(Error(it.description))
     }
 
-    fun start(baseUrl: String) {
+    fun start(baseUrl: String, userId: String) {
 
         if (client.value != null) {
             return
@@ -70,7 +70,9 @@ class VoiceClientManager(private val context: Context) {
         val options = RTVIClientOptions(
             params = RTVIClientParams(
                 baseUrl = baseUrl,
-                endpoints = RTVIURLEndpoints(),
+                endpoints = RTVIURLEndpoints(
+                    connect = "/connect?user_id=$userId"
+                ),
             )
         )
 
