@@ -67,6 +67,8 @@ Phase 0 – Baseline & Branch Setup 🌱
 ────────────────────────────────────────────
 Phase 1 – Profile Injection 👵🏻👴🏽
 ────────────────────────────────────────────
+Reference: See `project_insights.txt` (patient-intake example)
+────────────────────────────────────────────
 1.1  Add profiles.py in server folder
      - Two dicts: A & B
      - Validation: python -c "import profiles; print(profiles.PROFILES.keys())" | grep a && grep b
@@ -86,6 +88,8 @@ ASK_SUPERVISOR: Please provide the Hebrew greeting text for each profile.
 ────────────────────────────────────────────
 Phase 2 – Function Calling Skeleton 🛠
 ────────────────────────────────────────────
+Reference: See `project_insights.txt` (word-wrangler-gemini-live example)
+────────────────────────────────────────────
 2.1  Define declarations (function_tools.py)
      - Validation: python -m tests.test_function_tools
 
@@ -99,6 +103,8 @@ ASK_SUPERVISOR: Confirm function names, descriptions, and Hebrew phrasing for ea
 
 ────────────────────────────────────────────
 Phase 3 – Hebrew Audio 🎤🔊
+────────────────────────────────────────────
+Reference: See `project_insights.txt` (translation-chatbot example)
 ────────────────────────────────────────────
 3.1  Select Hebrew voice (e.g. "Lior")
      - Validation: hear Hebrew TTS; log shows correct voice_id
@@ -117,6 +123,8 @@ Phase 4 – On-Screen Transcripts 📝
 
 ────────────────────────────────────────────
 Phase 5 – Mini RAG 🔍
+────────────────────────────────────────────
+Reference: See `project_insights.txt` (news-chatbot example)
 ────────────────────────────────────────────
 5.1  data/knowledge.json with Hebrew Q&A
      - Validation: file exists, valid JSON
@@ -140,6 +148,31 @@ Phase 7 – UX Polish & Demo Script 🎬
      - Validation: after tool call, banner shows summary
 7.3  run_demo.sh automates server + emulator
      - Validation: script runs, demo completes without crash
+
+────────────────────────────────────────────
+Phase 8 – Native Device Actions 📱
+────────────────────────────────────────────
+8.1  Backend: Define `set_phone_alarm` tool
+     - Update `function_tools.py` with the new tool for setting alarms.
+     - Validation: Gemini recognizes "set an alarm for 8am" and logs a `function_call` for `set_phone_alarm`.
+
+8.2  Backend: Send RTVI message to client
+     - Instead of running Python code, the tool handler will send a custom RTVI message.
+     - Example: `{"action": "set_alarm", "time": "08:00"}`
+     - Validation: Server log shows the custom message being sent to the client.
+
+8.3  Android: Listen for custom action messages
+     - In `VoiceClientManager.kt`, add a listener for incoming RTVI messages.
+     - When a message with `{"action": ...}` is received, dispatch it to a handler.
+     - Validation: `logcat` shows "Received custom action: set_alarm" with correct parameters.
+
+8.4  Android: Implement native AlarmManager & permissions
+     - Create a helper function that calls Android's `AlarmManager`.
+     - Add necessary permissions to `AndroidManifest.xml`.
+     - Implement the runtime permission request flow.
+     - Validation: After granting permission, the alarm is visible in the Android Clock app.
+
+ASK_SUPERVISOR: Confirm the exact format for the RTVI message and the desired user experience for permissions (e.g., should we ask once, or every time?).
 
 ────────────────────────────────────────────
 Possible Issues & Troubleshooting
