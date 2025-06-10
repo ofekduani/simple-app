@@ -20,6 +20,7 @@ import asyncio
 import os
 import sys
 import argparse
+import functools # Added for Phase 6
 
 import aiohttp
 from dotenv import load_dotenv
@@ -43,11 +44,12 @@ from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIObserver, RTVIProcessor
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
+import json # Added for lookup_doc
 from pipecat.services.gemini_multimodal_live.gemini import GeminiMultimodalLiveLLMService
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 from profiles import PROFILES
-from function_tools import medicine_reminder_function
+from function_tools import medicine_reminder_function, lookup_doc_function, set_phone_alarm_function # Added set_phone_alarm_function
 
 load_dotenv(override=True)
 
@@ -110,8 +112,10 @@ class TalkingAnimation(FrameProcessor):
 def build_system_prompt(profile):
     return f"""
     You are a helpful assistant for {profile.get('name', 'the user')}.
+    You MUST conduct the entire conversation in Hebrew. Please respond and interact with the user exclusively in Hebrew.
     They are {profile.get('age')} years old, live in {profile.get('city')}, and enjoy {', '.join(profile.get('hobbies', []))}.
     Their pill time is {profile.get('pill_time')}.
+    Current status for pill_taken_today: {profile.get('pill_taken_today', False)}.
 
     You have access to a tool called `set_medicine_reminder`. Use this tool when the user asks you to set a medicine reminder.
     When the user asks to set a reminder, you need to identify the medicine name and the time for the reminder.
@@ -120,6 +124,13 @@ def build_system_prompt(profile):
     For example, if the medicine name is missing, ask: #[Hebrew: "What is the name of the medicine?"]#
     If the time is missing, ask: #[Hebrew: "At what time should I set the reminder?"]#
     Only call the `set_medicine_reminder` function AFTER you have successfully gathered both the medicine name and the time from the user.
+    When you set a medicine reminder, the system also notes that the user's pill for the day has been accounted for (`pill_taken_today` will be true). If the user asks to set a reminder and you find `pill_taken_today` is already true in their profile information (available to you in this system prompt), you can inform them, for example: 'I've set the reminder for [medicine] at [time]. I also see you've already noted taking your medication today.'
+
+    If the user asks if they've taken their medicine today, check the `pill_taken_today` status in their profile and answer accordingly in Hebrew. For example, if true: 'כן, לפי המידע שלי כבר לקחת את התרופה שלך היום.' (Yes, according to my information you have already taken your medicine today.) If false: 'לא רשום שלקחת את התרופה שלך היום. תרצה שאזכיר לך?' (It's not noted that you've taken your medicine today. Would you like me to remind you?)
+
+    You also have a tool called `lookup_doc`. Use this tool if the user asks about activities, schedules, or any other information that might be found in a local knowledge base. Pass the user's question or key topics as the 'query' to the tool. For example, if the user asks "מה יש בימי שני אחר הצהריים?", you should call `lookup_doc` with a query like "ימי שני" or "שני אחר הצהריים".
+
+    You have a tool called `set_phone_alarm` to set an alarm on the user's phone. If the user asks to set an alarm or wake-up call, use this tool. You must get the specific time in HH:MM format. An alarm label is optional. For example, if the user says 'Set an alarm for 7 AM to take my medicine', call `set_phone_alarm` with `time` as '07:00' and `label` as 'Take medicine'.
     """
 
 
@@ -163,10 +174,17 @@ async def main():
             api_key=os.getenv("GEMINI_API_KEY"),
             voice_id="Puck",  # Aoede, Charon, Fenrir, Kore, Puck
             transcribe_user_audio=True,
-            tools=ToolsSchema(standard_tools=[medicine_reminder_function]),
+            tools=ToolsSchema(standard_tools=[medicine_reminder_function, lookup_doc_function, set_phone_alarm_function]), # Added set_phone_alarm_function
         )
 
-        llm.register_function("set_medicine_reminder", set_medicine_reminder)
+        # RTVI events for Pipecat client UI
+        # This needs to be initialized before registering functions that use it.
+        rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
+
+        # Register function handlers
+        llm.register_function("set_medicine_reminder", functools.partial(set_medicine_reminder_handler, profile=profile))
+        llm.register_function("lookup_doc", lookup_doc)
+        llm.register_function("set_phone_alarm", functools.partial(set_phone_alarm_handler, rtvi=rtvi)) # Added set_phone_alarm handler
 
         messages = [
             {
@@ -181,11 +199,6 @@ async def main():
         context_aggregator = llm.create_context_aggregator(context)
 
         ta = TalkingAnimation()
-
-        #
-        # RTVI events for Pipecat client UI
-        #
-        rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
         pipeline = Pipeline(
             [
@@ -230,9 +243,75 @@ async def main():
         await runner.run(task)
 
 
-async def set_medicine_reminder(params: FunctionCallParams):
-    logger.info(f"Function call received: set_medicine_reminder with params: {params.arguments}")
-    await params.result_callback({"status": "received", "params": params.arguments})
+async def set_medicine_reminder_handler(params: FunctionCallParams, profile: dict):
+    logger.info(f"Function call received: set_medicine_reminder with params: {params.arguments} for profile: {profile.get('name')}")
+
+    # Update pill_taken_today status
+    profile["pill_taken_today"] = True
+    logger.info(f"Profile for {profile.get('name')}: pill_taken_today set to True")
+
+    await params.result_callback({
+        "status": "Reminder set and pill_taken_today flag updated to True.",
+        "medicine_name": params.arguments.get("name"),
+        "time": params.arguments.get("time"),
+        "pill_taken_today": True
+    })
+
+async def lookup_doc(params: FunctionCallParams):
+    query = params.arguments.get("query")
+    logger.info(f"Function call received: lookup_doc with query: {query}")
+
+    found_info_string = "מצטער, לא מצאתי מידע על זה." # Default sorry message in Hebrew
+
+    if query:
+        try:
+            # Construct the full path to knowledge.json relative to this script's directory
+            knowledge_file_path = os.path.join(os.path.dirname(__file__), "data", "knowledge.json")
+            with open(knowledge_file_path, 'r', encoding='utf-8') as f:
+                knowledge_base = json.load(f)
+
+            activities = knowledge_base.get("activities", [])
+            found_activities = []
+
+            for activity in activities:
+                if query.lower() in activity.get("name", "").lower() or \
+                   query.lower() in activity.get("description", "").lower() or \
+                   query.lower() in activity.get("time", "").lower(): # also check time field
+                    found_activities.append(f"פעילות: {activity.get('name', '')}, תיאור: {activity.get('description', '')}, זמן: {activity.get('time', '')}")
+
+            if found_activities:
+                found_info_string = "מצאתי את הפעילויות הבאות: " + " | ".join(found_activities)
+        except FileNotFoundError:
+            logger.error("knowledge.json not found at expected path.")
+            found_info_string = "מצטער, קובץ המידע אינו זמין כרגע."
+        except json.JSONDecodeError:
+            logger.error("Error decoding knowledge.json.")
+            found_info_string = "מצטער, יש בעיה בקריאת קובץ המידע."
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during lookup_doc: {e}")
+            found_info_string = "מצטער, אירעה שגיאה בלתי צפויה בעת חיפוש המידע."
+
+    logger.info(f"lookup_doc result: {found_info_string}")
+    await params.result_callback({"content": found_info_string})
+
+async def set_phone_alarm_handler(params: FunctionCallParams, rtvi: RTVIProcessor):
+    time = params.arguments.get("time")
+    label = params.arguments.get("label", "") # Optional, defaults to empty string if not provided
+
+    payload = {
+        "action": "set_alarm",
+        "time": time,
+        "label": label
+    }
+
+    if rtvi:
+        await rtvi.send_message(payload)
+        logger.info(f"Sent RTVI message to client: set_alarm with payload: {payload}")
+        await params.result_callback({"status": f"Attempted to send 'set_alarm' instruction to client for {time}.", "sent_payload": payload})
+    else:
+        logger.error("RTVIProcessor instance is not available. Cannot send set_alarm message.")
+        await params.result_callback({"status": "Failed to send 'set_alarm' instruction: RTVI system not available.", "sent_payload": payload})
+
 
 if __name__ == "__main__":
     asyncio.run(main())
