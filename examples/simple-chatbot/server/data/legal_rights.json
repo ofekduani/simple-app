@@ -1,0 +1,20 @@
+[
+  {
+    "id": "lr001",
+    "topic": "Healthcare Decision Making",
+    "summary": "You have the right to make your own healthcare decisions and to appoint someone to make them for you if you are unable.",
+    "details_prompt": "Tell me more about making healthcare decisions or appointing a healthcare proxy."
+  },
+  {
+    "id": "lr002",
+    "topic": "Pension Rights",
+    "summary": "You are entitled to receive your pension benefits as per your employment agreement and relevant laws.",
+    "details_prompt": "Explain more about my pension rights and how to claim them."
+  },
+  {
+    "id": "lr003",
+    "topic": "Housing Rights",
+    "summary": "You have the right to safe and habitable housing, and to be protected from discrimination in housing.",
+    "details_prompt": "Tell me more about my housing rights and protections against discrimination."
+  }
+]

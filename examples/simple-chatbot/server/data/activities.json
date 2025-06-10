@@ -1,0 +1,30 @@
+[
+  {
+    "id": "act001",
+    "name": "Community Gardening Club",
+    "description": "Join fellow gardening enthusiasts at the community garden. Tools and seeds provided.",
+    "location_tags": ["community_garden", "outdoor"],
+    "hobby_tags": ["gardening", "social", "outdoor"]
+  },
+  {
+    "id": "act002",
+    "name": "Senior Book Club",
+    "description": "Discuss a new book every month at the local library. Great for meeting new people.",
+    "location_tags": ["library", "indoor"],
+    "hobby_tags": ["reading", "discussion", "social"]
+  },
+  {
+    "id": "act003",
+    "name": "Walking Group",
+    "description": "Join us for a refreshing walk around the park every morning.",
+    "location_tags": ["park", "outdoor"],
+    "hobby_tags": ["walking", "exercise", "social"]
+  },
+  {
+    "id": "act004",
+    "name": "Chess Club",
+    "description": "Challenge your mind and meet new friends at our weekly chess club.",
+    "location_tags": ["community_center", "indoor"],
+    "hobby_tags": ["chess", "strategy", "social"]
+  }
+]
