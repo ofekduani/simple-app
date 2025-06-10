@@ -1,4 +1,0 @@
-# Elder Demo Tracker
-# Use this file to track progress, issues, and notes for the Simple-Chatbot demo.
-
-[Created for Phase 0.1] 
