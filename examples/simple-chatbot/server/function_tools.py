@@ -47,3 +47,21 @@ check_contact_exists_function = FunctionSchema(
     },
     required=["contact_name"],
 )
+
+manage_journal_takeaways_function = FunctionSchema(
+    name="manage_journal_takeaways",
+    description="Saves the key takeaways from the current journal entry to a persistent file. It can also load previous takeaways, though that's usually handled at session start.",
+    properties={
+        "action": {
+            "type": "string",
+            "enum": ["save", "load"],
+            "description": "The action to perform: 'save' to save new takeaways, 'load' to retrieve all previous takeaways."
+        },
+        "takeaways_to_save": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "A list of key takeaway strings to save. Required if action is 'save'."
+        },
+    },
+    required=["action"],
+)

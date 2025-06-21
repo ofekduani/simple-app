@@ -49,7 +49,13 @@ from pipecat.services.gemini_multimodal_live.gemini import GeminiMultimodalLiveL
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 from profiles import PROFILES
-from function_tools import medicine_reminder_function, lookup_knowledge_base_function, google_search_function, check_contact_exists_function
+from function_tools import (
+    medicine_reminder_function,
+    lookup_knowledge_base_function,
+    google_search_function,
+    check_contact_exists_function,
+    manage_journal_takeaways_function # Added
+)
 
 load_dotenv(override=True)
 
@@ -57,6 +63,7 @@ logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
 
 current_user_id_for_handlers = None
+KNOWLEDGE_BASE_FILE = "user_journal_takeaways.txt" # Added for journaling
 
 # Load knowledge base data
 activities_data = []
@@ -125,34 +132,38 @@ class TalkingAnimation(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-def build_system_prompt(profile):
-    return f"""
-    You are a helpful assistant for {profile.get('name', 'the user')}.
-    They are {profile.get('age')} years old, live in {profile.get('city')}, and enjoy {', '.join(profile.get('hobbies', []))}.
-    Their pill time is {profile.get('pill_time')}.
+# Added: Function to load previous takeaways
+async def load_previous_takeaways():
+    try:
+        with open(KNOWLEDGE_BASE_FILE, "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
 
-    You have access to a tool called `set_medicine_reminder`. Use this tool when the user asks you to set a medicine reminder.
-    When the user asks to set a reminder, you need to identify the medicine name and the time for the reminder.
-    If the user's request is missing either the medicine name or the time, you MUST ask the user for the missing information before calling the tool.
-    Ask for the missing information in Hebrew.
-    For example, if the medicine name is missing, ask: #[Hebrew: "What is the name of the medicine?"]#
-    If the time is missing, ask: #[Hebrew: "At what time should I set the reminder?"]#
-    Only call the `set_medicine_reminder` function AFTER you have successfully gathered both the medicine name and the time from the user.
-    If the tool indicates the medicine was 'already_taken' for today, inform the user in Hebrew. For example: #[Hebrew: "נראה שכבר לקחת את התרופה הזו היום."]#
+# Modified: System prompt for journaling
+def build_system_prompt(profile, previous_takeaways_text):
+    # Determine user's name, defaulting to "me" if not available in profile
+    user_name = profile.get('name', 'me') if profile else 'me'
 
-    You also have access to a tool called `lookup_knowledge_base`.
-    Use this tool when the user asks for information about activities or their legal rights.
-    - For activities, you can search by `query` (e.g., "gardening", "book club"), `hobby_tags` (e.g., "social", "outdoor"), and `location_tags` (e.g., "community_garden", "library").
-    - For legal rights, you can search by `query` (e.g., "healthcare", "pension").
-    Specify the `interest_category` as "activities" or "legal_rights".
+    prompt = f"""
+    You are my personal journaling assistant. Your goals are:
+    1. Accurately transcribe my spoken journal entry.
+    2. After I finish speaking and you have the full transcription, identify 2-3 key takeaways, insights, or main points from my entry.
+    3. Present these key takeaways back to me.
+    4. You will then use the 'manage_journal_takeaways' tool with the 'save' action to save these takeaways.
 
-    You also have a `google_search` tool. Use this tool if you need to find information on the internet that is not covered by the `lookup_knowledge_base` tool (e.g. current events, facts not in local data).
-    #[Hebrew: "אם אינך מוצא מידע בבסיס הידע, תוכל להשתמש בכלי `google_search` כדי לחפש באינטרנט."]#
+    You are speaking with {user_name}.
+    Keep your interaction focused on these tasks. Be empathetic and understanding in tone when presenting takeaways.
 
-    To check if a contact exists in the user's phone, use the `check_contact_exists` tool.
-    When you use this tool, inform the user that the app is performing the check and will show the result.
-    #[Hebrew: "כדי לבדוק אם איש קשר קיים, השתמש בכלי `check_contact_exists`. הודע למשתמש שהאפליקציה מבצעת את הבדיקה."]#
+    Here are some key takeaways from our previous sessions, for your context:
+    {previous_takeaways_text if previous_takeaways_text else "This is our first session, or no takeaways were saved previously."}
+
+    When I start speaking, listen carefully for my journal entry.
+    Once I'm done, first present the key takeaways clearly.
+    Example of presenting takeaways: "Okay, I've got that down. The key takeaways I noted from your entry are: 1. [Takeaway 1], 2. [Takeaway 2], and 3. [Takeaway 3]."
+    After presenting the takeaways, you MUST call the 'manage_journal_takeaways' function with the 'save' action and the identified takeaways.
     """
+    return prompt
 
 
 async def main():
@@ -171,8 +182,10 @@ async def main():
     user_id = args.user_id or os.getenv("USER_ID", "a")
     global current_user_id_for_handlers
     current_user_id_for_handlers = user_id
-    profile = PROFILES.get(user_id, PROFILES["a"])
-    print(f"Loaded profile: {profile.get('name')}")
+    profile = PROFILES.get(user_id, PROFILES["a"]) # Profile can still be used for user's name, etc.
+    print(f"Loaded profile: {profile.get('name') if profile else 'default'}")
+
+    previous_takeaways_text = await load_previous_takeaways() # Load at the beginning
 
     async with aiohttp.ClientSession() as session:
         (room_url, token) = await configure(session)
@@ -198,13 +211,15 @@ async def main():
             voice_id="Puck",  # Aoede, Charon, Fenrir, Kore, Puck
             transcribe_user_audio=True,
             tools=ToolsSchema(standard_tools=[
-                medicine_reminder_function,
-                lookup_knowledge_base_function,
-                google_search_function,
-                check_contact_exists_function
+                manage_journal_takeaways_function, # Added
+                medicine_reminder_function, # Kept for potential other uses or future expansion
+                lookup_knowledge_base_function, # Kept
+                google_search_function, # Kept
+                check_contact_exists_function # Kept
             ]),
         )
 
+        llm.register_function("manage_journal_takeaways", handle_manage_journal_takeaways) # Added
         llm.register_function("set_medicine_reminder", set_medicine_reminder)
         llm.register_function("lookup_knowledge_base", lookup_knowledge_base)
         llm.register_function("google_search", google_search)
@@ -212,9 +227,14 @@ async def main():
 
         messages = [
             {
-                "role": "user",
-                "content": build_system_prompt(profile),
+                "role": "user", # System prompt is passed as a user message to Gemini API in this setup
+                "content": build_system_prompt(profile, previous_takeaways_text),
             },
+            # Optional: Initial greeting from assistant to set the context
+            # {
+            #     "role": "assistant",
+            #     "content": f"Hello {profile.get('name', 'there') if profile else 'there'}! Journaling session started. I've reviewed notes from our previous sessions."
+            # }
         ]
 
         # Set up conversation context and management
@@ -270,6 +290,44 @@ async def main():
         runner = PipelineRunner()
 
         await runner.run(task)
+
+
+# Added: Handler for manage_journal_takeaways function
+async def handle_manage_journal_takeaways(params: FunctionCallParams):
+    action = params.arguments.get("action")
+    logger.info(f"Function call: manage_journal_takeaways, Action: {action}")
+
+    if action == "save":
+        takeaways = params.arguments.get("takeaways_to_save", [])
+        if takeaways:
+            try:
+                with open(KNOWLEDGE_BASE_FILE, "a") as f:  # Append mode
+                    f.write(f"Session Date: {date.today().isoformat()}\n")
+                    for takeaway in takeaways:
+                        f.write(f"- {takeaway}\n")
+                    f.write("\n")  # Add a separator for readability
+                logger.info(f"Saved takeaways: {takeaways}")
+                await params.result_callback({"status": "success", "message": "Takeaways saved."})
+            except Exception as e:
+                logger.error(f"Error saving takeaways: {e}")
+                await params.result_callback({"status": "error", "message": "Failed to save takeaways."})
+        else:
+            logger.warning("No takeaways provided to save.")
+            await params.result_callback({"status": "no_action", "message": "No takeaways provided to save."})
+
+    elif action == "load":
+        # This action is primarily for completeness in the tool's definition.
+        # Actual loading happens at the start of main() for context priming.
+        # Gemini might theoretically call this if explicitly prompted by a user in a complex way.
+        try:
+            previous_takeaways_text = await load_previous_takeaways()
+            await params.result_callback({"status": "success", "previous_takeaways": previous_takeaways_text})
+        except Exception as e:
+            logger.error(f"Error loading takeaways via function call: {e}")
+            await params.result_callback({"status": "error", "message": "Failed to load takeaways."})
+    else:
+        logger.warning(f"Invalid action for manage_journal_takeaways: {action}")
+        await params.result_callback({"status": "error", "message": "Invalid action specified."})
 
 
 async def set_medicine_reminder(params: FunctionCallParams):
